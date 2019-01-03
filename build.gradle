@@ -1,0 +1,36 @@
+plugins {
+    id 'java'
+    id 'maven-publish'
+}
+
+group 'com.github.kylinc'
+version '1.0-SNAPSHOT'
+
+sourceCompatibility = 1.8
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
+
+dependencies {
+    testCompile group: 'junit', name: 'junit', version: '4.12'
+    implementation gradleApi()
+}
+
+// 指定上传的路径
+def localRepo = 'file://'+new File(System.getProperty('user.home'), '.m2/repository').absolutePath
+
+publishing {
+    repositories {
+        maven {
+            url = localRepo
+        }
+    }
+    publications {
+        maven(MavenPublication) {
+            from components.java
+//            artifact sourcesJar
+        }
+    }
+}
