@@ -154,6 +154,7 @@ public class SpiTask extends DefaultTask {
         classes.forEach(clazz ->{
           try {
             out.write(clazz.getName().getBytes());
+            out.write("\n".getBytes());
           } catch (IOException e) {
             e.printStackTrace();
           }
