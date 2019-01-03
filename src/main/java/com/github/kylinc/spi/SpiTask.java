@@ -27,10 +27,9 @@ public class SpiTask extends DefaultTask {
 
   String spiEntryNamePrefix = "META-INF/service/";
 
-  public void buildSpi(String buildPath,List<String> interfaces,String jarName){
+  public void buildSpi(String buildPath,List<String> interfaces){
     System.out.println(logPrefix+"start");
     File buildFile = new File(buildPath);
-    List<URL> urls = new ArrayList<>();
     File[] files = buildFile.listFiles(path -> {
       String fileName = path.getName();
       if(fileName.endsWith(".jar")){
@@ -39,97 +38,75 @@ public class SpiTask extends DefaultTask {
       return false;
     });
 
-    for(File file:files){
-      try {
-        urls.add(file.toURI().toURL());
-        if(file.getName().equals(jarName+".jar")){
-          throw new RuntimeException("build error,jar name ："+jarName+" is exists");
-        }
-      } catch (MalformedURLException e) {
-        e.printStackTrace();
-      }
-    }
+    Arrays.asList(files).forEach(jar -> {
+      File newJar = new File(jar.getPath()+".new");
+      try(JarOutputStream out = new JarOutputStream(new FileOutputStream(newJar));){
 
-    URLClassLoader urlClassLoader = new URLClassLoader(urls.toArray(new URL[0]));
+        URLClassLoader urlClassLoader = new URLClassLoader(new URL[]{jar.toURI().toURL()});
 
-    Map<Class,List<Class>> interfaceMap = loadInterface(urlClassLoader,interfaces);
+        Map<Class,List<Class>> interfaceMap = loadInterface(urlClassLoader,interfaces);
+        JarFile jarFile = new JarFile(jar);
 
-    try(JarOutputStream out = new JarOutputStream(new FileOutputStream(buildPath+"/"+jarName,true));) {
+        Enumeration<JarEntry> entries = jarFile.entries();
 
-      //遍历jar包，把所有的class复制到到一个jar包中
-      Arrays.asList(files).forEach(file -> {
-        try {
-          JarFile jarFile = new JarFile(file);
+        while (entries.hasMoreElements()) {
+          JarEntry jarEntry = entries.nextElement();
 
-          Enumeration<JarEntry> entries = jarFile.entries();
+          System.out.println(logPrefix + jarEntry.getName());
 
-          while (entries.hasMoreElements()) {
-            JarEntry jarEntry = entries.nextElement();
+          out.putNextEntry(jarEntry);
 
-            System.out.println(logPrefix + jarEntry.getName());
+          String entryName = "jar:file:"+jar.getPath()+"!/"+jarEntry.getName();
 
-            try {
-              out.putNextEntry(jarEntry);
+          InputStream in = new URL(entryName).openStream();
 
-              String entryName = "jar:file:"+file.getPath()+"!/"+jarEntry.getName();
+          byte[] buffer = new byte[100];
 
-              InputStream in = new URL(entryName).openStream();
-
-              byte[] buffer = new byte[100];
-
-              int num = 0;
-              while ((num = in.read(buffer)) > 0) {
-                if (num == 100)
-                  out.write(buffer);
-                else {
-                  byte[] bytes = new byte[num];
-                  for (int i = 0; i < num; i++) {
-                    bytes[i] = buffer[i];
-                  }
-                  out.write(bytes);
-                }
+          int num;
+          while ((num = in.read(buffer)) > 0) {
+            if (num == 100)
+              out.write(buffer);
+            else {
+              byte[] bytes = new byte[num];
+              for (int i = 0; i < num; i++) {
+                bytes[i] = buffer[i];
               }
-            } catch (IOException e) {
-              e.printStackTrace();
-            }
-
-            try {
-              if (jarEntry.getName().endsWith(".class")) {
-                String clazzName = jarEntry.getName().replace(".class", "").replaceAll("/", ".");
-                Class clazz = urlClassLoader
-                    .loadClass(clazzName);
-
-                interfaceMap.forEach((aClass, classes) -> {
-                  Class[] itfs = clazz.getInterfaces();
-                  for (Class itf : itfs) {
-                    if (itf == aClass) {
-                      classes.add(clazz);
-                      break;
-                    }
-                  }
-                });
-
-              }
-            } catch (ClassNotFoundException e) {
-              e.printStackTrace();
+              out.write(bytes);
             }
           }
 
-          File spiServicePath = new File(buildPath + "/" + spiEntryNamePrefix);
+          try {
+            if (jarEntry.getName().endsWith(".class")) {
+              String clazzName = jarEntry.getName().replace(".class", "").replaceAll("/", ".");
+              Class clazz = urlClassLoader
+                  .loadClass(clazzName);
 
-          addSpiToJar(interfaceMap,out,spiServicePath);
+              interfaceMap.forEach((aClass, classes) -> {
+                Class[] itfs = clazz.getInterfaces();
+                for (Class itf : itfs) {
+                  if (itf == aClass) {
+                    classes.add(clazz);
+                    break;
+                  }
+                }
+              });
 
-
-        } catch (IOException e) {
-          e.printStackTrace();
+            }
+          } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+          }
         }
-      });
 
-    }catch (Exception e){
-      e.printStackTrace();
-    }
 
-    System.out.println(logPrefix+"end");
+        addSpiToJar(interfaceMap, out);
+        if(jar.delete()){
+          newJar.renameTo(jar);
+        }
+
+      } catch (Exception e) {
+        e.printStackTrace();
+      }
+    });
 
   }
 
@@ -162,26 +139,9 @@ public class SpiTask extends DefaultTask {
    * 添加spi 的service到jar包中
    * @param interfaceMap
    * @param out
-   * @param spiServicePath
    */
-  public void addSpiToJar(Map<Class,List<Class>> interfaceMap,JarOutputStream out,File spiServicePath){
-    spiServicePath.mkdirs();
+  public void addSpiToJar(Map<Class,List<Class>> interfaceMap,JarOutputStream out){
     interfaceMap.forEach(((aClass, classes) -> {
-      File spiFile = new File(spiServicePath.getPath() + "/" + aClass.getName());
-
-      try (BufferedWriter bw = new BufferedWriter(new FileWriter(spiFile));) {
-        classes.forEach(clazz -> {
-          try {
-            bw.write(clazz.getName());
-          } catch (IOException e) {
-            e.printStackTrace();
-          }
-        });
-
-        bw.flush();
-      } catch (IOException e) {
-        e.printStackTrace();
-      }
 
       JarEntry spiEntry = new JarEntry(spiEntryNamePrefix + aClass.getName());
 
@@ -191,21 +151,13 @@ public class SpiTask extends DefaultTask {
         System.out.println(logPrefix + spiEntry.getName());
         out.putNextEntry(spiEntry);
 
-        FileInputStream in = new FileInputStream(spiFile);
-        byte[] buffer = new byte[100];
-
-        int num = 0;
-        while ((num = in.read(buffer)) > 0) {
-          if (num == 100) {
-            out.write(buffer);
-          } else {
-            byte[] bytes = new byte[num];
-            for (int i = 0; i < num; i++) {
-              bytes[i] = buffer[i];
-            }
-            out.write(bytes);
+        classes.forEach(clazz ->{
+          try {
+            out.write(clazz.getName().getBytes());
+          } catch (IOException e) {
+            e.printStackTrace();
           }
-        }
+        });
         out.flush();
       } catch (Exception e) {
         e.printStackTrace();

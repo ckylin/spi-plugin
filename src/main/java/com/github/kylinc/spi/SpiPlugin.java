@@ -22,14 +22,8 @@ public class SpiPlugin implements Plugin<Project> {
 
     spiTask.dependsOn(buildTask);
 
-    System.out.println("build path:"+buildPath);
-
     spiTask.doFirst(task -> {
-      if(extension.jarName==null)
-        extension.jarName = project.getName() + "-spi-" + project.getVersion()+".jar";
-      else
-        extension.jarName = extension.jarName+".jar";
-      spiTask.buildSpi(buildPath,Arrays.asList(extension.interfaces),extension.jarName);
+      spiTask.buildSpi(buildPath,Arrays.asList(extension.interfaces));
     });
 
   }
