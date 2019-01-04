@@ -7,6 +7,7 @@ import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.JarURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -40,12 +41,12 @@ public class SpiTask extends DefaultTask {
 
     Arrays.asList(files).forEach(jar -> {
       File newJar = new File(jar.getPath()+".new");
-      try(JarOutputStream out = new JarOutputStream(new FileOutputStream(newJar));){
+      try(JarOutputStream out = new JarOutputStream(new FileOutputStream(newJar));JarFile jarFile = new JarFile(jar);){
 
         URLClassLoader urlClassLoader = new URLClassLoader(new URL[]{jar.toURI().toURL()});
 
         Map<Class,List<Class>> interfaceMap = loadInterface(urlClassLoader,interfaces);
-        JarFile jarFile = new JarFile(jar);
+
 
         Enumeration<JarEntry> entries = jarFile.entries();
 
@@ -58,21 +59,28 @@ public class SpiTask extends DefaultTask {
 
           String entryName = "jar:file:"+jar.getPath()+"!/"+jarEntry.getName();
 
-          InputStream in = new URL(entryName).openStream();
+          JarURLConnection jarURLConnection =(JarURLConnection) new URL(entryName).openConnection();
+          jarURLConnection.setUseCaches(false);
 
-          byte[] buffer = new byte[100];
+          try(InputStream in = jarURLConnection.getInputStream();) {
 
-          int num;
-          while ((num = in.read(buffer)) > 0) {
-            if (num == 100)
-              out.write(buffer);
-            else {
-              byte[] bytes = new byte[num];
-              for (int i = 0; i < num; i++) {
-                bytes[i] = buffer[i];
+            byte[] buffer = new byte[1000];
+
+            int num;
+            while ((num = in.read(buffer)) > 0) {
+              if (num == 1000) {
+                out.write(buffer);
+
+              } else {
+                byte[] bytes = new byte[num];
+                for (int i = 0; i < num; i++) {
+                  bytes[i] = buffer[i];
+                }
+                out.write(bytes);
               }
-              out.write(bytes);
             }
+          }catch (Exception e){
+            e.printStackTrace();
           }
 
           try {
@@ -108,6 +116,7 @@ public class SpiTask extends DefaultTask {
       }
     });
 
+    System.out.println(logPrefix+"end");
   }
 
   /**
